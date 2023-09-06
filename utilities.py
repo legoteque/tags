@@ -313,18 +313,18 @@ def test_formats(artist, title):
 
 
 class Linker:
-    def __init__(self, tracks_df, finder_df=None):
+    def __init__(self, tracks_df, finder_df=None, full_lib=True):
         self.tracks_df = tracks_df
-        if type(finder_df) != pd.core.frame.DataFrame: 
-            thread = threading.Thread(target=self.build_finder)
-            thread.start()
-            thread.join()
-#             self.build_finder()
+        if type(finder_df) != pd.core.frame.DataFrame: self.build_finder(full_lib)
+            # thread = threading.Thread(target=self.build_finder)
+            # thread.start()
+            # thread.join()
         else: self.finder_df = finder_df
 
-    def build_finder(self):
-        time0 = time.time()
-        print("\nGenerant finder_df")
+    def build_finder(self, full_lib):
+        if full_lib: 
+            time0 = time.time()
+            print("\nGenerant finder_df")
         finder_df = self.tracks_df.copy()
         cols = ['mac_loc', 'mac_pc_loc', 'Artist', 'Name', 'Duration']
         finder_df = finder_df[cols]
@@ -342,8 +342,9 @@ class Linker:
         # finder_df["query"] = finder_df.artist  + " " + finder_df.title + " " + finder_df.title_extras_c
         
         self.finder_df = finder_df
-        finder_df.to_csv("temp/finder_df.csv", index=False)
-        print_time("finder_df creat i desat", time0)
+        if full_lib: 
+            finder_df.to_csv("temp/finder_df.csv", index=False)
+            print_time("finder_df creat i desat", time0)
 
    
         
@@ -381,7 +382,7 @@ class Linker:
         linked_track_df.level = linked_track_df.level.astype("int")
         
         color = {0: "darkgreen", 1: "sea green", 2: "steel blue",
-                 3: "purple4", 4: "orange red", 5: "red"}
+                 3: "purple4", 4: "purple4", 5: "red"}
         linked_track_df["color"] = linked_track_df.level.map(color)
 
         #afegim columna per configurar color de title_song al treballar en local
@@ -390,8 +391,8 @@ class Linker:
         return linked_track_df
         
     #funció per treure dataframe d'info del vinculament amb un audio de la biblioteca
-    def build_track_in_library_df(self, filepath, all_linkables=False):
-        audio = AudioFile(filepath)
+    def build_track_in_library_df(self, filepath, audio=None, all_linkables=False):
+        if audio == None: audio = AudioFile(filepath)
         artist, title, duration, creation = audio.artist, audio.title, audio.duration, audio.creation
              
         lista = filepath.split(os.sep)[-2]
@@ -416,8 +417,7 @@ class Linker:
         finder_df["artist_coef"] = all_artists_s.apply(lambda x: self.artist_coef(x, clean_dict))
         
         #incorporem coeficients de similitud de title a finder_df 
-        finder_df["title_coef"] = \
-        finder_df.title_c.apply(lambda x: similarity_coef(x, clean_dict["title_c"]))
+        finder_df["title_coef"] = finder_df.title_c.apply(lambda x: similarity_coef(x, clean_dict["title_c"]))
         
         #eliminem els tracks en els que la suma de coeficients de titol i artista es menor que 0.5
         cond = finder_df.artist_coef + finder_df.title_coef < .5
@@ -492,6 +492,7 @@ class Linker:
     #crea un dataframe amb la informació dels tracks d'un path local comparant amb bilbioteca
     def build_loc_path_synched_df(self, pc_path, path_df=pd.DataFrame(), subfolders=False):
         if path_df.empty: path_df = audio_files_in_folder(pc_path, subfolders)
+        if path_df.empty: return path_df #en el cas que el path a afegir no hi hagin audios
         
         local_path_df = pd.DataFrame()
         for row in path_df.itertuples():
@@ -512,16 +513,14 @@ class Linker:
     # construeix igual el folder a una playlist, pero desde un df (en comptes dun path) per fer refrescos locals
     # tots els arxius que hi hagin al path local no els evaluarà. Treu els que no hi son i afegeix i evalua els nous
     def build_synched_from_list_df(self, list_df):
-        list_df.drop(columns=['folder_iid', 'list_iid', 'audio_iid'], inplace=True)
-        
         path_refresh = os.sep.join(list_df.iloc[0]["Location"].split(os.sep)[:-1])
         df = audio_files_in_folder(path_refresh)
         
         if df.empty: return df, 0, len(list_df) #si no hi ha arxiu es que shan eliminat tots
             
-        # coloquem el nou smart per si hem incorporat m3a
         smart = df.iloc[0]["Smart"]
-        list_df.Smart = smart
+        list_df.Smart = smart # coloquem el nou smart per si hem incorporat m3a
+        list_df.drop(columns=['folder_iid', 'list_iid', 'audio_iid'], inplace=True)
 
         old_path_df, new_path_df = pd.DataFrame(), pd.DataFrame()
         for row in df.itertuples():
@@ -532,7 +531,12 @@ class Linker:
             else:
                 track_df = df[df.pc_loc == row.pc_loc].copy()
                 new_path_df = pd.concat([new_path_df, track_df], axis=0)
-        if not new_path_df.empty: new_path_df = self.build_loc_path_synched_df(None, path_df=new_path_df)
+        if not new_path_df.empty: 
+            new_path_df = self.build_loc_path_synched_df(None, path_df=new_path_df)
+            new_path_df = new_path_df.astype({"Smart": bool, "linkable": bool, "linked": bool})
+        
+        old_path_df = old_path_df.astype({"Smart": bool, "linkable": bool, "linked": bool})
+
         local_path_df = pd.concat([old_path_df, new_path_df])
         local_path_df.sort_values(by="Position", inplace=True)
         return local_path_df, len(new_path_df), len(list_df) - len(df) + len(new_path_df)

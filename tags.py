@@ -29,14 +29,14 @@ PATTERN = {"genre": r"^\!\d\d \![\w\&]+\b",
            "club": r"\B\@\S{3,5}\b",
            "generation": r"\B\:[C,B,X,Y,Z]\b",
            "year": r"^\d{4}$",
-           "bpm": r"^(([4-9][0-9])|1[0-9][0-9]|2[0-9][0-9])$"}
+           "bpm": r"^(([4-9][0-9])|1[0-9][0-9]|2[0-9][0-9])$",
+           "hashtag": r"\B\#\S+"}
 
 #valors i noms de les variables de checkbox (no és una descripció, serveix per definirles)
 TYPE_SUBGENRE = {"rebeat": ".rb", "doubletempo": ".dt", "halftempo": ".ht", "dembowed": ".dmbw", 
-                 "cover": ".co", "remix": ".rmx", "mashup": ".mu",
-                 "alternative": ".AH",  "mainstream": ".MS"}
+                 "cover": ".co", "remix": ".rmx", "mashup": ".mu", "melodic": ".mel"}
 
-DESC_SUBGENRE = {".mel": "Melodic", ".hpy": "Happy", ".drk": "Dark",
+DESC_SUBGENRE = {".hpy": "Happy", ".drk": "Dark",
                  ".chil": "Chill", ".sax": "Saxo",
                  ".epc": "Epic", ".hyp": "Hypnotic", ".atm": "Atmospheric", ".etn": "Etnic",
                  ".teen": "Teenager", ".auTu": "Autotune",
@@ -56,8 +56,7 @@ def yesno_to_bool(answer):
         
         
 if timings: time0 = time.time()
-
-
+   
 
 
 class Interface(tk.Tk):
@@ -68,7 +67,7 @@ class Interface(tk.Tk):
         self.attributes('-fullscreen', True)
         
         #afegim label loading
-        self.loading_lbl = tk.Label(self, text="Reading local export path and loading playlists...", 
+        self.loading_lbl = tk.Label(self, text="Loading...", 
                                     bg="white", fg="red", font=("Courier", 30), relief="solid", borderwidth=5)
         self.loading_lbl.place(relx=.5, rely=.5, anchor=tk.CENTER)
 
@@ -99,7 +98,7 @@ class Interface(tk.Tk):
         menubar.add_command(label="Minimize", command=self.minimize_win)
         
         filemenu = tk.Menu(menubar, tearoff=0)
-        filemenu.add_command(label="Add a path to local lists", command=self.add_local_list_to_browser)
+        filemenu.add_command(label="Add a path to local lists", command=self.add_local_list)
         filemenu.add_separator()
         filemenu.add_command(label="Create audio playlist to import in Itunes", command=self.create_playlist_to_export)
         
@@ -143,7 +142,7 @@ class Interface(tk.Tk):
         self.build_spotify_frame()
         
         #carreguem folders
-        self.build_tree_browser_from_playlists()
+        self.build_tree_folders()
         
         #inicialitzem i instanciem variables de reproduccio
         self.ct = CurrentTrack(self, loaded=False)
@@ -204,11 +203,16 @@ class Interface(tk.Tk):
         #clubs únics
         self.clubs_l = self.uniques("Composer", PATTERN["club"])
         
+        #hashtags unics
+        hashtags_l = self.uniques("Comments", PATTERN["hashtag"])
+        self.hashtags_l = [h.replace("#", "") for h in hashtags_l]
+        
         #creem un diccionari amb els unics cada cop que llegim per la propera vegada que obrim poder omplir els comboxes
         uniques_dic = {"subgenres_l": self.subgenres_l,
                        "sub_x_genre_dic": self.sub_x_genre_dic,
                        "desc_subgen_dic": self.desc_subgen_dic,
-                       "clubs_l": self.clubs_l}
+                       "clubs_l": self.clubs_l,
+                       "hashtags_l": self.hashtags_l}
         
         with open('temp/uniques.json', 'w') as f:
             json.dump(uniques_dic, f)
@@ -221,9 +225,11 @@ class Interface(tk.Tk):
         self.sub_x_genre_dic = uniques_dic["sub_x_genre_dic"]
         self.desc_subgen_dic = uniques_dic["desc_subgen_dic"]
         self.clubs_l = uniques_dic["clubs_l"]
+        self.hashtags_l = uniques_dic["hashtags_l"]
         
         #importem l'última versio carregada de playlists_df
         self.playlists_df = pd.read_csv("temp/playlists_df.csv", keep_default_na=False)
+        self.playlists_df = self.playlists_df.astype({"Smart": bool, "linkable": bool, "linked": bool})
         #importem l'ultima versió llegida de tracks_df
         self.tracks_df = pd.read_csv("temp/tracks_df.csv", dtype={"BPM": "str"}, keep_default_na=False)
         #importem l'ultima versió llegida de finder_df
@@ -244,7 +250,7 @@ class Interface(tk.Tk):
 
             msg = "\n\nCreat 'duplicated.csv' per consultar els duplicats"
             msg += "\n\n Soluciona aquests duplicats i recarrega la biblioteca"
-            msg = it.import_msg + msg
+            msg = it.msg + msg
             messagebox.showwarning(title="Info", message=msg)
             return        
         
@@ -252,8 +258,10 @@ class Interface(tk.Tk):
         self.linker = Linker(self.tracks_df)
         
         #apliquem filtrat de playlists d'itunes
-        pattern = r"^([1-9](A|B))|(1[0-2](A|B))"
-        cond1 = it.playlists_df.List.str.contains(pattern)
+        #pattern = r"^([1-9](A|B))|(1[0-2](A|B))"
+        pattern = r"^(1[0-2]|[1-9])(A|B)"
+        #cond1 = it.playlists_df.List.str.contains(pattern)
+        cond1 = it.playlists_df.List.str.match(pattern)
         cond2 = it.playlists_df.Folder.str.contains("^--")
         it_playlists_df = it.playlists_df[~cond1 & ~cond2].copy()
         
@@ -283,9 +291,10 @@ class Interface(tk.Tk):
 #         -----------
         lists_bar = tk.Frame(navigator_frame, bg="black")
     
-        add_local_list_btn = tk.Button(lists_bar, text="Add Local", command=self.add_local_list_to_browser)
-        self.remove_list_btn = tk.Button(lists_bar, text="Remove", command=self.remove_list_from_browser)
-        self.refresh_list_btn = tk.Button(lists_bar, text="Refresh", command=self.refresh_list_from_browser)
+        add_local_list_btn = tk.Button(lists_bar, text="Add", command=self.add_local_list)
+        self.remove_list_btn = tk.Button(lists_bar, text="Remove", command=self.delete_local_list)
+        self.reload_list_btn = tk.Button(lists_bar, text="Reload", command=self.reload_local_list)
+        self.update_list_btn = tk.Button(lists_bar, text="Update", command=self.refresh_list_from_browser)
         
         add_local_list_btn.grid(row=0, column=0, padx=2)
 #         -----------
@@ -306,7 +315,7 @@ class Interface(tk.Tk):
         
         self.list_btn2 = tk.Button(navigator_bar, text="Add hashtag", command=self.add_hashtag_to_list)
                                                
-        self.list_btn3 = tk.Button(navigator_bar, text="Build new tracks folder", command=self.build_new_tracks_folder)                                       
+        #self.list_btn3 = tk.Button(navigator_bar, text="Build new tracks folder", command=self.build_new_tracks_folder)                                       
                                                
 #         -----------
         self.folder_list = ttk.Treeview(navigator_frame, height=13, selectmode="browse")
@@ -355,7 +364,7 @@ class Interface(tk.Tk):
         pause_btn = tk.Button(self.player_frame, text="pause", relief="raised", borderwidth=5, command=self.pause)
         stop_btn = tk.Button(self.player_frame, text="stop", relief="raised", borderwidth=5, command=self.stop)
         jump15frwd = tk.Button(self.player_frame, text="+15", relief="raised", borderwidth=5, 
-                                    command = lambda: self.jump(15))
+                                    command = lambda: self.media.jump(15))
         next_btn = tk.Button(self.player_frame, text="next", relief="raised", borderwidth=5,
                                   command = lambda: self.change_song(1))
         
@@ -430,7 +439,7 @@ class Interface(tk.Tk):
             autoadvance = False
             if self.media.audio.is_playing():
                 if self.media.song_path == playing_path: return
-                else: self.media.audio.stop() #si seleccionem qualsevol altre track aturem
+                else: self.media.audio.stop() #si seleccionem qualsevol altre track aturem amb release
             #check if file exists
             if not os.path.isfile(playing_path):
                 msg = f"No connection to {playing_path}."
@@ -464,10 +473,17 @@ class Interface(tk.Tk):
         self.media.audio.play()
         
     def stop(self):
-        if not self.ct.loaded: return
-        self.media.audio.stop()
-        self.time_song.set("0:00")
-        self.perc_song.set("0%")
+        if not self.ct.loaded: 
+            #print("no hi ha current track")
+            return
+        #print("hi ha current track")
+        if hasattr(self.media, 'audio'):
+            #print("hi ha self.media")
+            if self.media.audio.is_playing(): 
+                self.media.audio.stop()
+                self.time_song.set("0:00")
+                self.perc_song.set("0%")
+        #else: print("no hi ha self.media")
         
     def pause(self):
         if not self.ct.loaded: return
@@ -523,15 +539,7 @@ class Interface(tk.Tk):
         for col in del_columns:
             if col in playlists_df: playlists_df.drop(columns=col, inplace=True)
         
-        playlists_df.to_csv("temp/playlists_df.csv", index=False)
-        
-    def local_last_list_selection(self, event):
-        local_playlists = self.playlists_df[self.playlists_df.Folder == "LOCAL"]
-        last_list_iid = len(local_playlists["List"].unique()) - 1
-        
-        if not last_list_iid < 0: 
-            self.list_list.selection_set(last_list_iid)
-            self.list_selected(event)
+        playlists_df.to_csv("temp/playlists_df.csv", index=False)     
         
     def return_folder_list_selected(self, return_ids=False):
         list_iid = self.list_list.selection()[0]
@@ -543,6 +551,7 @@ class Interface(tk.Tk):
         return folder, lista
     
     def append_list_to_playlists(self, new_list_df):
+        new_list_df = new_list_df.astype({"Smart": bool, "linkable": bool, "linked": bool})
         #ubiquem la nova llista darrera de les locals existents
         local_playlists_df = self.playlists_df[self.playlists_df.Folder == "LOCAL"].copy()
         local_playlists_df = pd.concat([local_playlists_df, new_list_df])
@@ -555,46 +564,99 @@ class Interface(tk.Tk):
         self.playlists_df.fillna("", inplace=True)
         
         self.save_playlists_df()
-# ----------
+             
+    def local_list_selection_after_edit(self, event):
+        if event in ["add", "delete list", "refresh"]:
+            #esborrem folders per si no estem a LOCAL, o no nhi ha, al donar-li add, 
+            #o per si es un delete list i queda sense locals
+            self.delete_audio_tree(lista=True, folder=True)
+            self.build_tree_folders()
+        
+            #folder_iid=0 sera LOCAL si existeix, sino sera el primer que trobi
+            self.folder_list.selection_set(0)
+            self.folder_selected(None)
+
+            local_playlists = self.playlists_df[self.playlists_df.Folder == "LOCAL"]
+            bigger_list_iid = len(local_playlists["List"].unique()) - 1
+            
+            if not bigger_list_iid < 0: 
+                #self.lm._folder_list_selected = [None, None] #forcem a que la llista seleccionada sigui carregada
+                self.list_list.selection_set(bigger_list_iid)
+                
+        #if event == "refresh": self.ct.loaded = False #perque no subiqui sobre lultim audio_iid
+        
+        self.list_selected(event)
+        
+        if event == "delete track":
+            self.audio_list.selection_set(self.ct.audio_iid)
+            self.audio_selected("None")
+            
+#         elif event == "refresh":
+#             self.audio_list.selection_set(0)
+#             self.audio_selected("None")
+
 #new_tracks_folder especifica a select_list la seleccio de export
-    def add_local_list_to_browser(self, new_tracks_folder_path=None): 
+    def add_local_list(self): 
         def extract_path(pathfile):
             pathfile = pathfile.split(os.sep)[:-1]
             return os.sep.join(pathfile)
         
-        if new_tracks_folder_path == None: #add new list
-            #busquem els paths locals ja agregats a les llistes
-            path_s = self.playlists_df[self.playlists_df.Folder == "LOCAL"]["pc_loc"].apply(extract_path)
+        #busquem els paths locals ja agregats a les llistes
+        path_s = self.playlists_df[self.playlists_df.Folder == "LOCAL"]["pc_loc"].apply(extract_path)
 
-            path = filedialog.askdirectory(initialdir=EXPORT_PATH, title='Select path to add as a list')
-            path = path.replace("/", os.sep)
-            #si el path no pertany a la carpeta compartida amb mac o el path ja ha estat agregat com a llista sortim
-            if (EXPORT_PATH not in path) | (path in path_s.values): 
-                if EXPORT_PATH not in path: msg = "It's not possible to add a folder not shared with mac"
-                if path in path_s.values: msg = "This path has already been added as a list"
-                messagebox.showwarning(message=msg, title="Error")
-                return
-        
-        #en el cas que sigui un add_new_tracks_folder
-        else: path, subfolders = new_tracks_folder_path, False
+        path = filedialog.askdirectory(initialdir=EXPORT_PATH, title='Select path to add as a list')
+        path = path.replace("/", os.sep)
+        #si el path no pertany a la carpeta compartida amb mac o el path ja ha estat agregat com a llista sortim
+        if (EXPORT_PATH not in path) | (path in path_s.values): 
+            if EXPORT_PATH not in path: msg = "It's not possible to add a folder not shared with mac"
+            if path in path_s.values: msg = "This path has already been added as a list"
+            messagebox.showwarning(message=msg, title="Error")
+            return
         
         time0 = time.time()
         folder_playlist_df = self.linker.build_loc_path_synched_df(path, subfolders=False)
         time1= time.time()
         
+        if folder_playlist_df.empty:
+            messagebox.showwarning(title="Error", message=f"No hi ha arxius d'audio a {path}.")
+            return
+        
         self.append_list_to_playlists(folder_playlist_df)
-        
-        #esborrem folders per si no estem a LOCAL, o no nhi ha, al donar-li add
-        self.delete_audio_tree(lista=True, folder=True)
-        self.build_tree_browser_from_playlists()
-        
-        #folder_iid=0 sera LOCAL i hi ha d'haver locals pq n'acabem d'agregar
-        self.folder_list.selection_set(0)
-        self.folder_selected(None)
-        self.local_last_list_selection(event="add")
+              
+        self.local_list_selection_after_edit(event="add")
         
         lista = path.split(os.sep)[-1]
         messagebox.showinfo(title="Info", message=f"Afegit {lista} a LOCAL en {time1 - time0:.2f}s.")
+        
+        
+    def delete_local_list(self):
+        msg = f"Do you want to remove {self.lm.folder_list_selected[1]} list?"
+        response = yesno_to_bool(messagebox.askquestion(message=msg, title="Question"))
+        if not response: return
+        
+        remove_df = self.lm.selected_list_df
+        self.remove_list_from_playlist(remove_df)
+        self.save_playlists_df()
+     
+        #intentem seleccionar la última llista local (si nhi ha, sino no fara res)
+        self.local_list_selection_after_edit(event="delete list")
+
+    def reload_local_list(self):
+        filepath = self.lm.selected_list_df.Location.iloc[0]
+        path = os.sep.join(filepath.split(os.sep)[:-1])
+        self.remove_list_from_playlist(self.lm.selected_list_df)
+
+        time0 = time.time()
+        folder_playlist_df = self.linker.build_loc_path_synched_df(path, subfolders=False)
+        time1= time.time()
+
+        self.append_list_to_playlists(folder_playlist_df)
+              
+        self.local_list_selection_after_edit(event="add")
+        
+        lista = path.split(os.sep)[-1]
+        messagebox.showinfo(title="Info", message=f"Reloaded {lista} to LOCAL in {time1 - time0:.2f}s.")
+
             
     def delete_track(self, later=False):
         #si no hi ha cap track seleccionat retorna
@@ -606,7 +668,7 @@ class Interface(tk.Tk):
             response = yesno_to_bool(messagebox.askquestion(message=msg, title="Question"))
             if not response: return
         
-        self.media.audio.stop()
+        if self.media.audio.is_playing(): self.media.audio.stop()
         
         #podem agafar current en comptes de selected perquè el track s'ha de carregar obligatòriament
         list_df = self.lm.current_list_df 
@@ -626,46 +688,34 @@ class Interface(tk.Tk):
             new_filepath = EXPORT_PATH + os.sep + filename
             os.replace(self.ct.pc_loc, new_filepath)
         else: os.remove(self.ct.pc_loc)
+        
+        self.local_list_selection_after_edit(event="delete track")
 
-        audio_iid = self.ct.audio_iid
-        self.ct.loaded = False
-        self.list_selected("delete track")
-        self.audio_list.selection_set(audio_iid)
-        self.audio_selected(None)
     
     def remove_list_from_playlist(self, list_df):
         del_index = list_df.index
         self.playlists_df.drop(index=del_index, inplace=True)
         self.playlists_df.reset_index(drop=True, inplace=True)
-    
-    def remove_list_from_browser(self):
-        remove_df = self.lm.selected_list_df
-        self.remove_list_from_playlist(remove_df)
-        self.save_playlists_df()
 
-        #intentem agafar folder, si nhi ha. Sinó folder selected no fara res
-        self.folder_selected(None)        
-        #eliminem folder_list_selected de lm (pq la següent seleccionada sigui la carregada)
-        self.lm._folder_list_selected = [None, None]
-        #intentem seleccionar la última llista local (si nhi ha, sino no fara res)
-        self.local_last_list_selection(event="delete list")
         
-    def refresh_list_from_browser(self, new_tracks_folder=False):
-        refresh_df = self.lm.selected_list_df
+    def refresh_list_from_browser(self):   
+        if hasattr(self.media, 'audio'):
+            if self.media.audio.is_playing(): self.media.audio.stop()
+            
+        refresh_df = self.lm.selected_list_df.copy()
         refreshed_df, added, deleted = self.linker.build_synched_from_list_df(refresh_df)
         
-        self.remove_list_from_playlist(refresh_df)
-        self.append_list_to_playlists(refreshed_df)
+        if added == deleted == 0: msg = "Sense canvis."
+        else:
+            # en el cas que estiguem reproduint la mateixa llista que refresquem descarreguem current track
+            # perque no ens situi sobre de l'iid de l'audio reproduit anteriorment
+            if self.lm.folder_list_current == self.lm.folder_list_selected: self.ct.loaded = False
+            self.remove_list_from_playlist(refresh_df)
+            self.append_list_to_playlists(refreshed_df)
+            msg = f"{added} arxius nous vinculats.\n{deleted} arxius eliminats de la carpeta."
+            self.local_list_selection_after_edit("refresh")
         
-        self.list_selected("refresh")
-        
-        if new_tracks_folder: return
-        
-        path_refresh = os.sep.join(refresh_df.pc_loc.iat[0].split(os.sep)[:-1])
-        lista = path_refresh.split(os.sep)[-1]
-        msg = f"{added} arxius nous vinculats.\n{deleted} arxius eliminats de la carpeta."
-        msg = "Sense canvis." if added == deleted == 0 else msg
-        messagebox.showinfo(title="Info", message=f"Llista {lista} actualitzada:\n" + msg)
+        messagebox.showinfo(title="Info", message=f"Llista {self.lm.folder_list_selected[1]} actualitzada:\n" + msg)
     
     def import_itunes_to_browser(self):
         xml_mod_date = remote_xml_conected_assert()
@@ -676,7 +726,8 @@ class Interface(tk.Tk):
             messagebox.showinfo(title="Info", message= msg + "Si hi ha informació nova a Itunes, desa la nova versió de la biblioteca.")
             return
 
-        self.stop()
+        if hasattr(self.media, 'audio'):
+            if self.media.audio.is_playing(): self.media.audio.stop()
         self.delete_audio_tree(lista=True, folder=True)#esborrem trees
         
         #mostrem label
@@ -701,7 +752,7 @@ class Interface(tk.Tk):
                 
         self.build_uniques()
           
-        self.build_tree_browser_from_playlists()
+        self.build_tree_folders()
         self.origin_route.set("Find remotes")
 
         if self.loading_lbl.winfo_exists(): 
@@ -709,46 +760,62 @@ class Interface(tk.Tk):
             messagebox.showinfo(title="Info", message=import_msg)
             self.list_btn1.grid_remove()
             self.list_btn2.grid_remove()
-            self.list_btn3.grid_remove()
+            #self.list_btn3.grid_remove()
 
     def create_playlist_to_export(self):
-        playlist = f"{self.lm._folder_list_selected[1]} (export).m3u8"
-        playlist_path = EXPORT_PATH + os.sep + playlist
         list_df = self.lm.selected_list_df.copy()
         
         playlist_paths_l = list_df.apply(lambda x: x.mac_loc if x.linked else x.pc_mac_loc, axis=1).tolist()
         
+        #mirem si hi ha playlist d'esborrats i els afegim a l'inici de l'export
+        folder_path = os.sep.join(self.lm.selected_list_df.iloc[0]["Location"].split(os.sep)[0:-1])
+        delete_path = folder_path + os.sep + "- ESBORRAR.m3u8"
+        if os.path.exists(delete_path):
+            to_delete = True
+            with open(delete_path) as text_file:
+                lines_l = text_file.readlines()
+                delete_l = [f.replace("\n", "") for f in lines_l]
+        else:
+            to_delete, delete_l = False, []
+        
+        playlist_paths_l = delete_l + playlist_paths_l
+        
+        playlist = f"{self.lm._folder_list_selected[1]} (export).m3u8"
+        playlist_path = EXPORT_PATH + os.sep + playlist
+        
         with open(playlist_path, "w", encoding='utf-8') as text_file:
             text_file.write("\n".join(playlist_paths_l))
+            
+        del_msg = "\nAfegits tracks per esborrar a iTunes" if to_delete else ""  
         msg = f"\nAfegida a '{EXPORT_PATH}' la playlist '{playlist}'"
-        messagebox.showinfo(title="Info", message=msg)
+        messagebox.showinfo(title="Info", message=msg+del_msg)
         
-    def build_new_tracks_folder(self):
-        msg = "Do you want to create a new folder with unlink tracks?"
-        response = yesno_to_bool(messagebox.askquestion(message=msg, title="Question"))
-        if not response: return
+    # def build_new_tracks_folder(self):
+    #     msg = "Do you want to create a new folder with unlink tracks?"
+    #     response = yesno_to_bool(messagebox.askquestion(message=msg, title="Question"))
+    #     if not response: return
         
-        list_df = self.lm.selected_list_df.copy()
+    #     list_df = self.lm.selected_list_df.copy()
         
-        filepath0 = list_df.pc_loc.iloc[0]
-        path = os.sep.join(filepath0.split(os.sep)[:-1])
-        export_path = path + os.sep + "export"
+    #     filepath0 = list_df.pc_loc.iloc[0]
+    #     path = os.sep.join(filepath0.split(os.sep)[:-1])
+    #     export_path = path + os.sep + "export"
         
-        if not os.path.isdir(export_path): os.mkdir(export_path)
+    #     if not os.path.isdir(export_path): os.mkdir(export_path)
         
-        cond = list_df.linked #els que no hem linkat son els exportables
-        no_linked_df = list_df[~cond]
-        paths_new = no_linked_df.pc_loc.tolist()
+    #     cond = list_df.linked #els que no hem linkat son els exportables
+    #     no_linked_df = list_df[~cond]
+    #     paths_new = no_linked_df.pc_loc.tolist()
         
-        for old_file_path in paths_new:
-            filename = old_file_path.split(os.sep)[-1]
-            new_file_path = export_path + os.sep + filename
-            os.replace(old_file_path, new_file_path)
+    #     for old_file_path in paths_new:
+    #         filename = old_file_path.split(os.sep)[-1]
+    #         new_file_path = export_path + os.sep + filename
+    #         os.replace(old_file_path, new_file_path)
         
-        self.refresh_list_from_browser(new_tracks_folder=True)
+    #     self.refresh_list_from_browser(new_tracks_folder=True)
         
-        #afegim el directori export com una llista (simulem un refresh del export)
-        self.add_local_list_to_browser(new_tracks_folder_path=export_path)
+    #     #afegim el directori export com una llista (simulem un refresh del export)
+    #     self.add_local_list(new_tracks_folder_path=export_path)
         
         
 #FUNCIONS PER EDITAR TRACKS
@@ -757,11 +824,6 @@ class Interface(tk.Tk):
         mac_loc, mac_pc_loc = self.ct.itunes_link_loc
 
         if self.ct.linked: self.change_link(False, upgrade=True)
-        
-        #afegim notacio de Esborrat i creem una llista per actualitzar aquests tracks
-        audio = AudioFile(mac_pc_loc)
-        audio.genre = "!99 !BORRAT"
-        audio.save()
 
         playlist_path = os.sep.join(self.ct.pc_loc.split(os.sep)[0:-1]) + os.sep + "- ESBORRAR.m3u8"
         if os.path.exists(playlist_path):
@@ -776,16 +838,21 @@ class Interface(tk.Tk):
                 text_file.write("\n".join(files_l))
 
         self.editor.fill_editor_fields(mac_pc_loc)
+        
+        #afegim notacio de Esborrat al genere i creem una llista per actualitzar aquests tracks
+        audio = AudioFile(mac_pc_loc)
+        audio.genre = "!99 !BORRAT"
+        audio.save()
             
          
     def change_link(self, linked, upgrade=False):
-        self.media.audio.stop()
+        if self.media.audio.is_playing(): self.media.audio.stop()
         
         index_track = self.playlists_df[self.playlists_df.Location == self.ct.Location].index
         self.playlists_df.loc[index_track, "linked"] = linked
         
         if linked:
-            self.playlists_df.loc[index_track, "level"] = 6
+            self.playlists_df.loc[index_track, "level"] = -2 if upgrade else 6
             self.playlists_df.loc[index_track, "color"] = "red"
             self.playlists_df.loc[index_track, "mac_pc_loc"] = self.ct.itunes_link_loc[1]
             self.playlists_df.loc[index_track, "mac_loc"] = self.ct.itunes_link_loc[0]
@@ -862,14 +929,15 @@ class Interface(tk.Tk):
             
     def remove_all_widgets(self):
         self.remove_list_btn.grid_remove()
-        self.refresh_list_btn.grid_remove()
+        self.reload_list_btn.grid_remove()
+        self.update_list_btn.grid_remove()
         self.sort_cb.grid_remove()
         self.origin_route_cb.grid_remove()
         self.list_btn1.grid_remove()
         self.list_btn2.grid_remove()
-        self.list_btn3.grid_remove()
+        #self.list_btn3.grid_remove()
 # ----------
-    def build_tree_browser_from_playlists(self):
+    def build_tree_folders(self):
         folders = self.playlists_df.Folder.unique()
         #omplim llista folders
         for folder, folder_iid in zip(folders, range(len(folders))):
@@ -883,7 +951,7 @@ class Interface(tk.Tk):
         self.delete_audio_tree(lista=True)
         self.remove_all_widgets()
         
-        folder_iid = self.folder_list.selection()[0]
+        folder_iid = self.folder_list.selection()[0] #treiem l'iid del que sha seleccionat
         folder = self.folder_list.item(folder_iid, option="text")
         folder_df = self.playlists_df[self.playlists_df.Folder == folder]
         lists = folder_df.List.unique()
@@ -912,7 +980,7 @@ class Interface(tk.Tk):
                 self.lm.folder_list_selected = [folder, lista]
             elif event.widget.widgetName == 'ttk::combobox':
                 self.lm.sorted_by_cb()
-                if self.ct.loaded: self.ct.update() #NO SE SI AQUI ESTIC REDUNDANT L'UPDATE
+                #if self.ct.loaded: self.ct.update() #NO SE SI AQUI ESTIC REDUNDANT L'UPDATE
         else:
             #en el cas que venim d'esborrar track o de refrescar hem de rellegir la llista seleccionada
             if event in ["delete track", "refresh", "change link"]: self.lm.update_selected_list()
@@ -924,11 +992,12 @@ class Interface(tk.Tk):
         #si estem a la carpeta "LOCAL" mostrem widgets o sinó sols el d'ordenar
         if folder == "LOCAL":
             self.remove_list_btn.grid(row=0, column=1, padx=2)
-            self.refresh_list_btn.grid(row=0, column=2, padx=2)
+            self.reload_list_btn.grid(row=0, column=2, padx=2)
+            self.update_list_btn.grid(row=0, column=3, padx=2)
             self.origin_route_cb.grid(row=0, column=2, padx=2)
             self.list_btn1.grid(row=0, column=3, padx=2)
             self.list_btn2.grid(row=0, column=4, padx=2)
-            self.list_btn3.grid(row=0, column=5, padx=2)
+            #self.list_btn3.grid(row=0, column=5, padx=2)
         self.sort_cb.grid(row=0, column=0, padx=2)
         
         #omplim audio_list
@@ -1023,7 +1092,7 @@ class CurrentTrack():
         if not self._loaded: return
         
         self.Folder, self.List = folder, lista
-        self.Location = location #location és antic origin_loc (ubicacio desde pc)
+        self.Location = location #location és la ubicacio desde pc
         
         if folder == "LOCAL": self.file_origin = "Local"
         else: self.file_origin = "Itunes"
@@ -1055,6 +1124,8 @@ class CurrentTrack():
         for attr, value in self._track_dic.items():
             setattr(self, attr, value)
         
+        #aquesta variable referencia el track que es mostra a l'itunes panel. Pot no ser el de major level, i aleshores no coincidira
+        #amb self.mac_loc, self.mac_pc_loc, però quan sinicialitza és per visualitzar el de major level (linkat o no)
         self.itunes_link_loc = [self.mac_loc, self.mac_pc_loc]
         if self.linkable == False: self.linked = False
         
@@ -1096,20 +1167,18 @@ class ListManager():
     #modifican la list selected en el cas que sigui diferent a lanterior seleccionada
     @folder_list_selected.setter
     def folder_list_selected(self, folder_list_selected):
-        if folder_list_selected != self._folder_list_selected:
-            #print("hem canviat de llista seleccionada")
-            self._folder_list_selected = folder_list_selected
-            if self._folder_list_selected == self.folder_list_current:
-                #print("hem tornat a current llista")
-                self.root.enable_trace_vars = False
-                self.root.sortby_cb.set(self.current_sort_cb)
-                self.root.enable_trace_vars = True
-            else:
-                sort_by = self.default_list_sort(folder_list_selected)
-                self.root.sortby_cb.set(sort_by)
-                #print("hem ordenat la llista per", sort_by)
-            self.selected_list_df = self.return_list_df(folder_list=folder_list_selected, sort=True, ids=True)    
-        #else: print("no hem canviat de llista seleccionada")
+        if folder_list_selected == self._folder_list_selected: return #no hem canviat de llista seleccionada
+        self._folder_list_selected = folder_list_selected
+        if self._folder_list_selected == self.folder_list_current: #hem tornat a current llista
+            self.root.enable_trace_vars = False
+            self.root.sortby_cb.set(self.current_sort_cb)
+            self.root.enable_trace_vars = True
+        else:
+            sort_by = self.default_list_sort(folder_list_selected)
+            self.root.sortby_cb.set(sort_by)
+            #print("hem ordenat la llista per", sort_by)
+        self.selected_list_df = self.return_list_df(folder_list=folder_list_selected, sort=True, ids=True)    
+
     
     #si hem seleccionat un track de la llista seleccionada actual, copia selected_list a current_list
     def set_selected_as_current(self):
@@ -1177,8 +1246,7 @@ class ListManager():
          
         return list_df   
 
-
-
+   
 
 
 
@@ -1393,14 +1461,19 @@ class TagsEditor(tk.Frame):
         self.comments.trace("w", lambda e,f,g: self.user_modification(field="comments"))
         self.comments_e = tk.Entry(frame4, textvariable=self.comments, font=font, bg=bg, fg=color, relief=tk.SOLID, state=edit)
         
+        hashtag_cb = tk.StringVar(value="Hashtags")
+        self.hashtags_cb = ttk.Combobox(frame4, textvariable=hashtag_cb, values=[], height=20, width=10)
+        self.hashtags_cb.bind('<<ComboboxSelected>>', lambda e: self.cb_selected("hashtag"))
+        
         self.hashtag = tk.StringVar(value="")
-        self.hashtag = tk.Entry(frame4, textvariable=self.hashtag, font=font, bg=bg, fg=color, width=7, relief=tk.SOLID, state=edit)
+        self.hashtag_e = tk.Entry(frame4, textvariable=self.hashtag, font=font, bg=bg, fg=color, width=7, relief=tk.SOLID, state=edit)
         hashtag_btn = tk.Button(frame4, text="Add #", relief="raised", borderwidth=0, command=self.add_hashtag)
         
         comments_lbl.grid(row=0, column=0, columnspan=3, sticky="NSEW")
         self.comments_e.grid(row=1, column=0, sticky="NSEW")
-        self.hashtag.grid(row=1, column=1, sticky="NSEW")
-        hashtag_btn.grid(row=1, column=2, sticky="NSEW")
+        self.hashtags_cb.grid(row=1, column=1, sticky="NSEW")
+        self.hashtag_e.grid(row=1, column=2, sticky="NSEW")
+        hashtag_btn.grid(row=1, column=3, sticky="NSEW")
         
         
         save_btn = tk.Button(self, text="Save Tags", relief="raised", borderwidth=0, command=self.save_audio_tags)
@@ -1411,6 +1484,7 @@ class TagsEditor(tk.Frame):
         save_next_btn.pack(side=tk.RIGHT, padx=5, pady=0)
         
     def add_hashtag(self):
+        if self.hashtag == "": return
         comments = self.comments.get()
         hashtag = "#" + self.hashtag.get()
         if not hashtag in comments:
@@ -1443,19 +1517,19 @@ class TagsEditor(tk.Frame):
                 self.current_save[name] = value
                 self.current_modified[name] = True
             
-            if self.editing_audio.artist == artist: 
+            if self.metadata_audio.artist == artist: 
                 self.artist_e.config(bg=wo_changes_col)
                 self.current_modified["artist"] = False
             else: self.artist_e.config(bg=to_save_col)
-            if self.editing_audio.title == title: 
+            if self.metadata_audio.title == title: 
                 self.title_e.config(bg=wo_changes_col)
                 self.current_modified["title"] = False
             else: self.title_e.config(bg=to_save_col)
-            if self.editing_audio.group == group: 
+            if self.metadata_audio.group == group: 
                 self.group_e.config(bg=wo_changes_col)
                 self.current_modified["group"] = False
             else: self.group_e.config(bg=to_save_col)
-            if self.editing_audio.comments == comments: 
+            if self.metadata_audio.comments == comments: 
                 self.comments_e.config(bg=wo_changes_col)
                 self.current_modified["comments"] = False
             else: self.comments_e.config(bg=to_save_col)
@@ -1466,7 +1540,7 @@ class TagsEditor(tk.Frame):
             match = re.match(PATTERN["year"], year)
             if match:
                 self.current_save["year"] = year
-                if self.editing_audio.date[:4] == year: 
+                if self.metadata_audio.date[:4] == year: 
                     self.year_e.config(bg=wo_changes_col)
                     self.current_modified["year"] = False
                 else: self.year_e.config(bg=to_save_col)
@@ -1486,7 +1560,7 @@ class TagsEditor(tk.Frame):
             
             if correct:
                 self.current_save["genre"] = genre_l[0]
-                if self.editing_audio.genre == genre_l[0]: 
+                if self.metadata_audio.genre == genre_l[0]: 
                     self.genre_e.config(bg=wo_changes_col)
                     self.current_modified["genre"] = False
                 else: self.genre_e.config(bg=to_save_col) 
@@ -1509,7 +1583,7 @@ class TagsEditor(tk.Frame):
             
             if self.is_correct(album, subgenres_l + desc_subgenres_l)["correct"]:
                 self.current_save["album"] = formated_album
-                if self.editing_audio.album == formated_album:
+                if self.metadata_audio.album == formated_album:
                     self.album_e.config(bg=wo_changes_col)
                     self.current_modified["album"] = False
                 else: self.album_e.config(bg=to_save_col)
@@ -1533,7 +1607,7 @@ class TagsEditor(tk.Frame):
             correct = self.is_correct(composer, rating_l + clubs_l + generation_l)["correct"]
             if correct & (len(rating_l) != 0):
                 self.current_save["composer"] = formated_composer
-                if self.editing_audio.composer == formated_composer:
+                if self.metadata_audio.composer == formated_composer:
                     self.composer_e.config(bg=wo_changes_col)
                     self.current_modified["composer"] = False
                 else: self.composer_e.config(bg=to_save_col)
@@ -1569,7 +1643,7 @@ class TagsEditor(tk.Frame):
             if match_bpm:
                 bpm_match = True
                 self.current_save["bpm"] = bpm
-                if self.editing_audio.bpm == bpm: 
+                if self.metadata_audio.bpm == bpm: 
                     self.bpm_e.config(bg=wo_changes_col)
                     self.current_modified["bpm"] = False
                 else: self.bpm_e.config(bg=to_save_col)
@@ -1580,7 +1654,7 @@ class TagsEditor(tk.Frame):
                 
             if match_tn:
                 self.current_save["tracknumber"] = tracknumber
-                if self.editing_audio.tracknumber == tracknumber: 
+                if self.metadata_audio.tracknumber == tracknumber: 
                     self.tracknumber_e.config(bg=wo_changes_col)
                     self.current_modified["tracknumber"] = False
                     #en el cas que els dos facin match i siguin diferents (no múltiples) ho indicarem amb un color especific
@@ -1623,7 +1697,8 @@ class TagsEditor(tk.Frame):
         other = other.replace(" ","")
         if other == "": correct = True
         else: correct = False
-            
+        
+        if wrong == "[void]": wrong = ""        
         return {"correct": correct, "wrong_text":wrong}
 
     def album_fields(self, album, wrong_text=False):
@@ -1653,6 +1728,7 @@ class TagsEditor(tk.Frame):
 #EASY TAGS SELECTED
     def cb_selected(self, cb):
         if not self.root.ct.loaded: return
+        if cb == "hashtag": self.hashtag.set(self.hashtags_cb.get())
         
         if cb == "genre":
             genre = self.genre_cb.get()
@@ -1710,10 +1786,9 @@ class TagsEditor(tk.Frame):
         return composer
         
 #TAG EDITOR FUNCTIONS
-    def fill_editor_fields(self, playing_path=None):
+    def fill_editor_fields(self, itunes_link_loc=None):
         if not self.root.ct.loaded: return
-        
-        if playing_path == None: playing_path = self.root.ct.playing_path
+        playing_path = self.root.ct.playing_path
         
         if EXPORT_PATH in self.root.ct.playing_path: #origin = "PC"
             self.origin.set("LOCAL")
@@ -1731,11 +1806,15 @@ class TagsEditor(tk.Frame):
             self.info_bar.config(bg="#525")
             self.origin_lbl.config(bg="#525")
         
-        
         self.enable_trace_vars = False
         
-        editing_audio = AudioFile(playing_path)
-        self.editing_audio = AudioFile(playing_path)
+        #si hi ha itunes_link_loc es un upgrade
+        #editing_audio (variable de funció) es el que veiem mentre editem (queda enmagatzemat en pantalla)
+        if itunes_link_loc == None: editing_audio = AudioFile(playing_path)
+        else: editing_audio = AudioFile(itunes_link_loc)
+        
+        #self.metadata_audio és on hi ha la metadata real de l'arxiu
+        self.metadata_audio = AudioFile(playing_path)
         
         #afegirem als diccionaris de uniques si els tags porten data no actualitzada a itunes
         self.append_new_uniques(genre=editing_audio.genre, album=editing_audio.album, composer=editing_audio.composer)
@@ -1772,7 +1851,7 @@ class TagsEditor(tk.Frame):
         self.tracknumber.set(editing_audio.tracknumber)
         self.bpm.set(editing_audio.bpm)
         self.comments.set(editing_audio.comments)
-        
+        self.hashtags_cb.config(values=self.root.hashtags_l)
         
         self.enable_trace_vars = True
         self.user_modification(field="load")
@@ -1834,7 +1913,7 @@ class TagsEditor(tk.Frame):
         if play_next: self.root.media.audio.stop()#si posem l'stop prop del change, es penja (??)
 
         #agafem a variables locals les que impliquen al desament del track
-        saving_audio = self.editing_audio
+        saving_audio = self.metadata_audio
         #playing_path = saving_audio.filepath
         current_save = self.current_save
         current_modified = self.current_modified
@@ -2077,7 +2156,9 @@ class TagsReader(tk.Frame):
         self.fill_itunes_fields(prelisten=True)
         self.root.play_path(prelisten="select")
 
-    def select_linkable(self):
+    def select_linkable(self): 
+        if hasattr(self, 'window'): self.window.destroy()
+        
         self.window = tk.Toplevel()
         self.window.title("Linkables")
         x = self.root.winfo_x()
@@ -2095,7 +2176,7 @@ class TagsReader(tk.Frame):
         self.audio_list.column("artist", minwidth=0, width=250, stretch=tk.NO)
         self.audio_list.heading("title", text="Title")
         self.audio_list.column("title", minwidth=0, width=449, stretch=tk.NO)
-        self.audio_list.heading("duration", text="Title")
+        self.audio_list.heading("duration", text="Duration")
         self.audio_list.column("duration", minwidth=0, width=100, stretch=tk.NO)
         self.audio_list.heading("level", text="L")
         self.audio_list.column("level", minwidth=0, width=25, stretch=tk.NO)
@@ -2230,7 +2311,3 @@ class MusicPlayer:
     def jump(self, seconds):
         now = self.audio.get_time()
         self.audio.set_time(now + seconds*1000)
-
-
-
-

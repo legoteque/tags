@@ -223,7 +223,8 @@ class ItunesLibrary:
             #if playlist.find("key").text == 'Playlist ID':
             tracks_pl[i] = self._read_tracks_ids(playlist)
             length = len(tracks_pl[i])
-            df = df.append(self._read_playlist_info(playlist, i, length, max_tracks=max_tracks))
+            #df = df.append(self._read_playlist_info(playlist, i, length, max_tracks=max_tracks))
+            df = pd.concat([df, self._read_playlist_info(playlist, i, length, max_tracks=max_tracks)])
         #esborrem les llistes vuides
         index = df[df.Length == 0].index
         playlists_df = df.drop(index=index)
@@ -239,7 +240,8 @@ class ItunesLibrary:
         
         all_playlist_songs = pd.DataFrame()
         for i in playlists_tracks_dic.keys():
-            all_playlist_songs = all_playlist_songs.append(create_playlist_df(i))
+            #all_playlist_songs = all_playlist_songs.append(create_playlist_df(i))
+            all_playlist_songs = pd.concat([all_playlist_songs, create_playlist_df(i)])
         num_playlists = len(playlists_df)
         num_songs_playlists = len(all_playlist_songs)
         
@@ -431,6 +433,11 @@ class AudioFile:
                     # else: self.tags[tag] = str(self.mp4[tag_code][0])
                     else: self.tags[tag] = str(self.mp4[tag_code][0]).replace("\x00", "[void]")
                 self.__dict__[tag] = self.tags[tag]
+            #afegim isrc del label
+            if self.label != "": 
+                label_l = self.label.split(":")
+                self.isrc = label_l[-1]
+            else: self.isrc = ""
                 
 #FUNCIONS INTERNES        
     def _add_mp3_comment(self):
@@ -594,6 +601,7 @@ class Spotify:
         track_s["seconds"] = seconds
         track_s["explicit"] = track["explicit"]
         track_s["popularity"] = track["popularity"]
+        track_s["isrc"] = track["external_ids"]["isrc"]
         return track_s
 
     def _build_info_df(self, tracks_l):
